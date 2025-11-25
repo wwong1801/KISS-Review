@@ -1,0 +1,5 @@
+{
+  "name": "KISS",
+  "description": "A collaborative retrospective tool using the Keep, Improve, Start, Stop methodology, enhanced with Gemini AI for instant analysis and action items.",
+  "requestFramePermissions": []
+}
