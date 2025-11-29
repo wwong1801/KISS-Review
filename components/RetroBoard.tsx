@@ -4,8 +4,7 @@ import {
   Trash2, 
   ArrowLeft,
   Lightbulb,
-  Anchor,
-  MapPin
+  Target
 } from 'lucide-react';
 import { KissQuadrant } from './KissQuadrant';
 import { AnalysisModal } from './AnalysisModal';
@@ -52,8 +51,12 @@ export const RetroBoard: React.FC<RetroBoardProps> = ({ session, onUpdateSession
     }
   }, [isEditingStrategy]);
 
-  const handleUpdateItems = (newItems: RetroItem[]) => {
-    onUpdateSession({ ...session, items: newItems });
+  const handleUpdateItems = (newItems: RetroItem[], newStrategy?: string) => {
+    const update: RetroSession = { ...session, items: newItems };
+    if (newStrategy !== undefined) {
+      update.strategy = newStrategy;
+    }
+    onUpdateSession(update);
   };
 
   const handleUpdateStrategy = (newStrategy: string) => {
@@ -63,12 +66,20 @@ export const RetroBoard: React.FC<RetroBoardProps> = ({ session, onUpdateSession
   const handlePinToStrategy = (text: string) => {
     const current = strategy.trim();
     const toAdd = text.trim();
-    // Avoid duplicates if simple check
-    if (current.includes(toAdd)) return;
+    
+    if (!current) {
+        handleUpdateStrategy(toAdd);
+        setStrategyText(toAdd);
+        return;
+    }
 
-    const nextStrategy = current ? `${current} + ${toAdd}` : toAdd;
+    // Split by separator to check for exact duplicates among the parts
+    const parts = current.split(' + ');
+    if (parts.includes(toAdd)) return;
+
+    const nextStrategy = `${current} + ${toAdd}`;
     handleUpdateStrategy(nextStrategy);
-    setStrategyText(nextStrategy); // update local state immediately
+    setStrategyText(nextStrategy);
   };
 
   const generateId = () => {
@@ -93,9 +104,35 @@ export const RetroBoard: React.FC<RetroBoardProps> = ({ session, onUpdateSession
   };
 
   const handleEditItem = (id: string, newText: string) => {
-    handleUpdateItems(items.map(item => 
+    const itemToEdit = items.find(i => i.id === id);
+    let updatedStrategy = session.strategy;
+
+    // Sync strategy if the item (or its sub-items context) is pinned
+    if (itemToEdit && updatedStrategy) {
+      const oldText = itemToEdit.text;
+      const parts = updatedStrategy.split(' + ');
+      
+      const newParts = parts.map(part => {
+        // Direct match: The item itself was pinned
+        if (part === oldText) {
+          return newText;
+        }
+        // Context match: A sub-item was pinned with this parent's text as prefix
+        // Format is "Parent: Subitem"
+        if (part.startsWith(`${oldText}: `)) {
+          return part.replace(`${oldText}: `, `${newText}: `);
+        }
+        return part;
+      });
+      
+      updatedStrategy = newParts.join(' + ');
+    }
+
+    const updatedItems = items.map(item => 
       item.id === id ? { ...item, text: newText } : item
-    ));
+    );
+
+    handleUpdateItems(updatedItems, updatedStrategy);
   };
 
   const handleDelete = (id: string) => {
@@ -152,7 +189,22 @@ export const RetroBoard: React.FC<RetroBoardProps> = ({ session, onUpdateSession
   };
 
   const handleEditSubItem = (itemId: string, subItemId: string, newText: string) => {
-    handleUpdateItems(items.map(item => {
+    const parentItem = items.find(i => i.id === itemId);
+    const subItem = parentItem?.subItems?.find(s => s.id === subItemId);
+    let updatedStrategy = session.strategy;
+
+    // Sync strategy if this specific sub-item was pinned
+    if (parentItem && subItem && updatedStrategy) {
+      const oldComposite = `${parentItem.text}: ${subItem.text}`;
+      const newComposite = `${parentItem.text}: ${newText}`;
+      
+      const parts = updatedStrategy.split(' + ');
+      const newParts = parts.map(part => part === oldComposite ? newComposite : part);
+      
+      updatedStrategy = newParts.join(' + ');
+    }
+
+    const updatedItems = items.map(item => {
       if (item.id === itemId && item.subItems) {
         return {
           ...item,
@@ -162,7 +214,9 @@ export const RetroBoard: React.FC<RetroBoardProps> = ({ session, onUpdateSession
         };
       }
       return item;
-    }));
+    });
+
+    handleUpdateItems(updatedItems, updatedStrategy);
   };
 
   // --- End Sub Item Handlers ---
@@ -320,7 +374,7 @@ export const RetroBoard: React.FC<RetroBoardProps> = ({ session, onUpdateSession
         </div>
       </header>
 
-      {/* Strategy Banner */}
+      {/* Focus / Strategy Banner */}
       <div className="bg-slate-900 text-white border-b border-slate-800 relative z-30">
         <div className="max-w-[1600px] mx-auto px-4 py-3">
           {isEditingStrategy ? (
@@ -346,7 +400,7 @@ export const RetroBoard: React.FC<RetroBoardProps> = ({ session, onUpdateSession
                   setIsEditingStrategy(false);
                 }
               }}
-              placeholder="What is your core strategy? e.g. Sleep + Exercise + Routine"
+              placeholder="What is your main focus this week? e.g. 15 mins exercise"
               className="w-full bg-transparent text-center font-medium text-lg placeholder:text-slate-600 focus:outline-none resize-none overflow-hidden"
               rows={1}
             />
@@ -357,15 +411,15 @@ export const RetroBoard: React.FC<RetroBoardProps> = ({ session, onUpdateSession
             >
               {strategy ? (
                  <>
-                   <MapPin className="w-4 h-4 text-amber-400 fill-amber-400 flex-shrink-0" />
+                   <Target className="w-4 h-4 text-indigo-400 flex-shrink-0" />
                    <p className="font-bold text-lg tracking-wide text-center">
                      {strategy}
                    </p>
                  </>
               ) : (
                 <div className="flex items-center gap-2 text-slate-500 hover:text-slate-300 transition-colors">
-                  <Anchor className="w-4 h-4" />
-                  <span className="text-sm font-medium tracking-wider uppercase">Define The Way</span>
+                  <Target className="w-4 h-4" />
+                  <span className="text-sm font-medium tracking-wider uppercase">Set Focus of the Week</span>
                 </div>
               )}
             </div>

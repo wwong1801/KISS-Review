@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Trash2, Star, GripVertical, ListPlus, CheckCircle2, Circle, X, MapPin } from 'lucide-react';
+import { Plus, Trash2, Star, GripVertical, ListPlus, CheckCircle2, Circle, X, Target, MoreHorizontal, ChevronDown, ChevronRight } from 'lucide-react';
 import { Category, RetroItem, CATEGORY_CONFIG, RetroSubItem } from '../types';
 
 interface KissQuadrantProps {
@@ -56,6 +56,13 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
   const [editSubItemValue, setEditSubItemValue] = useState('');
   const subItemEditRef = useRef<HTMLInputElement>(null);
 
+  // Collapse State for Items with Sub-items
+  const [collapsedItemIds, setCollapsedItemIds] = useState<Set<string>>(new Set());
+
+  // Mobile Active States (Slide-to-reveal emulation)
+  const [activeMobileSubId, setActiveMobileSubId] = useState<string | null>(null);
+  const [activeMobileItemId, setActiveMobileItemId] = useState<string | null>(null);
+
   const config = CATEGORY_CONFIG[category];
 
   useEffect(() => {
@@ -84,6 +91,26 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
     }
   }, [isCreating]);
 
+  // Handle outside click to clear mobile active states
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      
+      // Clear Sub Item Active State
+      if (activeMobileSubId && !target.closest('.sub-item-row')) {
+        setActiveMobileSubId(null);
+      }
+      
+      // Clear Main Item Active State
+      if (activeMobileItemId && !target.closest('.main-item-row')) {
+        setActiveMobileItemId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [activeMobileSubId, activeMobileItemId]);
+
+
   // Sort items: Starred first, then by custom order
   const sortedItems = [...items].sort((a, b) => {
     if (a.isStarred === b.isStarred) {
@@ -91,6 +118,16 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
     }
     return a.isStarred ? -1 : 1;
   });
+
+  const toggleCollapse = (itemId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCollapsedItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
 
   // Creation Logic
   const handleCreationSubmit = () => {
@@ -115,6 +152,7 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
   const startEditing = (item: RetroItem) => {
     setEditingId(item.id);
     setEditValue(item.text);
+    setActiveMobileItemId(null); // Clear active state
   };
 
   const saveEditing = (id: string) => {
@@ -145,7 +183,12 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
     if (newSubItemText.trim()) {
       onAddSubItem(itemId, newSubItemText.trim());
       setNewSubItemText('');
-      // Keep input open to add more stages quickly
+      // Ensure expanded when adding
+      setCollapsedItemIds(prev => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
     } else {
       setAddingSubItemId(null);
     }
@@ -154,6 +197,7 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
   const startEditingSubItem = (subItem: RetroSubItem) => {
     setEditingSubItemId(subItem.id);
     setEditSubItemValue(subItem.text);
+    setActiveMobileSubId(null); // Clear active state when editing starts
   };
 
   const saveEditingSubItem = (itemId: string, subItemId: string) => {
@@ -272,68 +316,100 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
           </div>
         )}
         
-        {sortedItems.map((item) => (
+        {sortedItems.map((item) => {
+          const isItemActive = activeMobileItemId === item.id;
+          const hasSubItems = item.subItems && item.subItems.length > 0;
+          const isCollapsed = collapsedItemIds.has(item.id);
+          
+          return (
           <div 
             key={item.id} 
             draggable={editingId !== item.id && !editingSubItemId && !isCreating}
             onDragStart={(e) => handleDragStart(e, item.id)}
             onDragOver={(e) => e.preventDefault()} 
             onDrop={(e) => handleItemDrop(e, item.id)}
-            className={`group relative bg-white p-3 rounded-lg shadow-sm border border-slate-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-grab ${editingId === item.id ? 'ring-2 ring-indigo-500' : 'active:cursor-grabbing'} ${item.isStarred ? 'ring-1 ring-amber-300 bg-amber-50/30' : ''}`}
+            onClick={(e) => {
+                // Handle Mobile Tap to Reveal Actions for Main Item
+                // Don't trigger if clicking interactive elements
+                if (!(e.target as HTMLElement).closest('button') && !(e.target as HTMLElement).closest('input') && !(e.target as HTMLElement).closest('textarea') && !(e.target as HTMLElement).closest('.sub-item-row')) {
+                    setActiveMobileItemId(isItemActive ? null : item.id);
+                }
+            }}
+            className={`main-item-row group relative bg-white p-3 rounded-lg shadow-sm border border-slate-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-grab 
+                ${editingId === item.id ? 'ring-2 ring-indigo-500' : 'active:cursor-grabbing'} 
+                ${item.isStarred ? 'ring-1 ring-amber-300 bg-amber-50/30' : ''}
+                ${isItemActive ? 'ring-1 ring-indigo-300 bg-indigo-50/30' : ''}
+            `}
           >
             {/* Actions Toolbar - Floating Top Right */}
+            {/* Logic: Visible if NOT editing AND (Mobile Active OR Desktop Hover) */}
             {editingId !== item.id && !editingSubItemId && (
-              <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 backdrop-blur shadow-sm border border-slate-100 rounded-md p-0.5 z-20">
+              <div 
+                className={`absolute top-2 right-2 flex items-center gap-0.5 transition-all duration-200 bg-white/95 backdrop-blur shadow-sm border border-slate-100 rounded-md p-0.5 z-20
+                    ${isItemActive ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0'}
+                `}
+              >
                 <button 
-                  onClick={() => onStar(item.id)}
-                  className={`p-1 rounded hover:bg-slate-100 transition-colors ${item.isStarred ? 'text-amber-500' : 'text-slate-400 hover:text-amber-500'}`}
+                  onClick={(e) => { e.stopPropagation(); onStar(item.id); }}
+                  className={`p-1.5 md:p-1 rounded hover:bg-slate-100 transition-colors ${item.isStarred ? 'text-amber-500' : 'text-slate-400 hover:text-amber-500'}`}
                   title="Star to top"
                 >
-                  <Star className={`w-3.5 h-3.5 ${item.isStarred ? 'fill-amber-500' : ''}`} />
+                  <Star className={`w-4 h-4 md:w-3.5 md:h-3.5 ${item.isStarred ? 'fill-amber-500' : ''}`} />
                 </button>
 
                  <button 
-                  onClick={() => onPinToStrategy(item.text)}
-                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded transition-colors"
-                  title="Pin to The Way"
+                  onClick={(e) => { e.stopPropagation(); onPinToStrategy(item.text); setActiveMobileItemId(null); }}
+                  className="p-1.5 md:p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded transition-colors"
+                  title="Pin to Focus"
                 >
-                  <MapPin className="w-3.5 h-3.5" />
+                  <Target className="w-4 h-4 md:w-3.5 md:h-3.5" />
                 </button>
 
                  <button 
-                  onClick={() => setAddingSubItemId(item.id)}
-                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded transition-colors"
+                  onClick={(e) => { e.stopPropagation(); setAddingSubItemId(item.id); setActiveMobileItemId(null); }}
+                  className="p-1.5 md:p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded transition-colors"
                   title="Add Stage/Step"
                 >
-                  <ListPlus className="w-3.5 h-3.5" />
+                  <ListPlus className="w-4 h-4 md:w-3.5 md:h-3.5" />
                 </button>
                 
                 <button 
-                  onClick={() => onDelete(item.id)}
-                  className="p-1 text-slate-400 hover:text-rose-500 hover:bg-slate-100 rounded transition-colors"
+                  onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}
+                  className="p-1.5 md:p-1 text-slate-400 hover:text-rose-500 hover:bg-slate-100 rounded transition-colors"
                   title="Delete"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
                 </button>
               </div>
             )}
 
-            {/* Permanent Star Indicator (when not hovering) */}
-            {item.isStarred && editingId !== item.id && (
+            {/* Permanent Star Indicator (when not hovering/active) */}
+            {item.isStarred && editingId !== item.id && !isItemActive && (
                <div className="absolute top-2.5 right-2.5 text-amber-400 group-hover:opacity-0 transition-opacity z-10 pointer-events-none">
                   <Star className="w-3.5 h-3.5 fill-amber-400" />
                </div>
             )}
 
             <div className="flex gap-2 items-start">
-               {/* Drag Handle */}
+               {/* Drag Handle & Collapse Toggle */}
               {editingId !== item.id && !editingSubItemId && (
-                <div className="mt-0.5 text-slate-300 cursor-grab active:cursor-grabbing flex-shrink-0">
-                  <GripVertical className="w-4 h-4" />
+                <div className="mt-0.5 text-slate-300 flex items-center gap-0.5 flex-shrink-0">
+                  <div className="cursor-grab active:cursor-grabbing">
+                     <GripVertical className="w-4 h-4" />
+                  </div>
+                  {hasSubItems && (
+                    <button 
+                      onClick={(e) => toggleCollapse(item.id, e)}
+                      className="hover:text-indigo-500 transition-colors p-0.5 rounded"
+                      title={isCollapsed ? "Show Details" : "Hide Details"}
+                    >
+                      {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
                 </div>
               )}
               
-              <div className="flex-1 min-w-0 pr-6">
+              <div className="flex-1 min-w-0 pr-2 md:pr-6">
                 {editingId === item.id ? (
                   <textarea
                     ref={textareaRef}
@@ -350,7 +426,7 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
                   />
                 ) : (
                   <p 
-                    onClick={() => startEditing(item)}
+                    onClick={(e) => { e.stopPropagation(); startEditing(item); }}
                     className={`text-sm leading-relaxed whitespace-pre-wrap cursor-text hover:text-indigo-800 transition-colors ${item.isStarred ? 'font-medium text-slate-900' : 'text-slate-700'}`}
                   >
                     {item.text}
@@ -360,45 +436,100 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
             </div>
 
             {/* Sub Items (Stages) */}
-            {(item.subItems && item.subItems.length > 0 || addingSubItemId === item.id) && (
-              <div className="pl-6 pt-2 space-y-1">
-                {item.subItems?.map(sub => (
-                  <div key={sub.id} className="group/sub flex items-center gap-2 text-xs relative">
-                     <button 
-                        onClick={() => onToggleSubItem(item.id, sub.id)}
-                        className={`transition-colors flex-shrink-0 ${sub.isCompleted ? 'text-green-500' : 'text-slate-300 hover:text-slate-400'}`}
-                     >
-                       {sub.isCompleted ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Circle className="w-3.5 h-3.5" />}
-                     </button>
-                     
-                     <div className="flex-1 min-w-0 pr-4">
-                        {editingSubItemId === sub.id ? (
-                           <input
-                              ref={subItemEditRef}
-                              value={editSubItemValue}
-                              onChange={(e) => setEditSubItemValue(e.target.value)}
-                              onBlur={() => saveEditingSubItem(item.id, sub.id)}
-                              onKeyDown={(e) => handleSubItemKeyDown(e, item.id, sub.id)}
-                              className="w-full bg-transparent border-b border-indigo-300 focus:outline-none py-0.5"
-                           />
-                        ) : (
-                           <span 
-                            onClick={() => startEditingSubItem(sub)}
-                            className={`cursor-pointer hover:text-indigo-700 transition-colors block truncate ${sub.isCompleted ? 'line-through text-slate-400' : 'text-slate-600'}`}
-                           >
-                              {sub.text}
-                           </span>
-                        )}
-                     </div>
+            {(hasSubItems || addingSubItemId === item.id) && !isCollapsed && (
+              <div className="pl-6 pt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
+                {item.subItems?.map(sub => {
+                  const isActive = activeMobileSubId === sub.id;
+                  return (
+                    <div 
+                      key={sub.id} 
+                      className={`sub-item-row group/sub flex items-center gap-2 text-xs relative py-1.5 min-h-[36px] transition-colors rounded-md -mx-2 px-2 ${isActive ? 'bg-indigo-50/60' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation(); // Stop propagation to prevent Main Item Active trigger
+                        // Toggle active state on row click (for mobile experience)
+                        if ((e.target as HTMLElement).tagName !== 'INPUT' && !(e.target as HTMLElement).closest('button')) {
+                          setActiveMobileSubId(isActive ? null : sub.id);
+                        }
+                      }}
+                    >
+                       <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleSubItem(item.id, sub.id);
+                          }}
+                          className={`transition-colors flex-shrink-0 p-1 md:p-0 z-10 ${sub.isCompleted ? 'text-green-500' : 'text-slate-300 hover:text-slate-400'}`}
+                       >
+                         {sub.isCompleted ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Circle className="w-3.5 h-3.5" />}
+                       </button>
+                       
+                       <div className="flex-1 min-w-0 pr-8 transition-all duration-300">
+                          {editingSubItemId === sub.id ? (
+                             <input
+                                ref={subItemEditRef}
+                                value={editSubItemValue}
+                                onChange={(e) => setEditSubItemValue(e.target.value)}
+                                onBlur={() => saveEditingSubItem(item.id, sub.id)}
+                                onKeyDown={(e) => handleSubItemKeyDown(e, item.id, sub.id)}
+                                className="w-full bg-transparent border-b border-indigo-300 focus:outline-none py-1"
+                             />
+                          ) : (
+                             <span 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startEditingSubItem(sub);
+                              }}
+                              className={`cursor-pointer hover:text-indigo-700 transition-colors block truncate py-1 ${sub.isCompleted ? 'line-through text-slate-400' : 'text-slate-600'}`}
+                             >
+                                {sub.text}
+                             </span>
+                          )}
+                       </div>
 
-                     <button 
-                        onClick={() => onDeleteSubItem(item.id, sub.id)}
-                        className="absolute right-0 opacity-0 group-hover/sub:opacity-100 text-slate-300 hover:text-rose-500 transition-opacity p-0.5"
-                     >
-                        <X className="w-3 h-3" />
-                     </button>
-                  </div>
-                ))}
+                       {/* Mobile "More" hint (visible when inactive on mobile) */}
+                       {!isActive && (
+                         <div className="absolute right-2 md:hidden text-slate-300">
+                           <MoreHorizontal className="w-4 h-4" />
+                         </div>
+                       )}
+
+                       {/* Actions: Desktop (Hover) & Mobile (Active State) */}
+                       <div 
+                        className={`
+                          absolute right-0 top-0 bottom-0 flex items-center gap-1 pl-4 pr-1
+                          bg-gradient-to-l from-white via-white to-transparent 
+                          md:from-white/95 md:to-white/95 md:backdrop-blur-[1px] md:rounded-l-md 
+                          transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]
+                          ${isActive 
+                              ? 'opacity-100 translate-x-0 bg-white/80 backdrop-blur-md rounded-l-lg shadow-sm' // Mobile Active
+                              : 'opacity-0 translate-x-4 pointer-events-none md:pointer-events-auto md:translate-x-0 md:group-hover/sub:opacity-100' // Desktop Hover
+                          }
+                        `}
+                       >
+                          <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onPinToStrategy(`${item.text}: ${sub.text}`);
+                                setActiveMobileSubId(null);
+                              }}
+                              className="p-2 md:p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-full md:rounded transition-colors active:scale-95"
+                              title="Pin to Focus"
+                          >
+                              <Target className="w-5 h-5 md:w-3.5 md:h-3.5" />
+                          </button>
+                          <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteSubItem(item.id, sub.id);
+                              }}
+                              className="p-2 md:p-1 text-slate-400 hover:text-rose-500 hover:bg-slate-100 rounded-full md:rounded transition-colors active:scale-95"
+                              title="Delete"
+                          >
+                              <X className="w-5 h-5 md:w-3.5 md:h-3.5" />
+                          </button>
+                       </div>
+                    </div>
+                  );
+                })}
 
                 {/* Add Sub Item Input */}
                 {addingSubItemId === item.id && (
@@ -416,7 +547,6 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
                             setAddingSubItemId(null);
                             setNewSubItemText('');
                           } else if (e.key === 'Backspace' && newSubItemText === '') {
-                             // Handle "Cancel/Remove" empty new stage
                              setAddingSubItemId(null);
                              setNewSubItemText('');
                           }
@@ -426,8 +556,21 @@ export const KissQuadrant: React.FC<KissQuadrantProps> = ({
                 )}
               </div>
             )}
+            
+            {/* Collapsed Indicator / Add SubItem Hint if collapsed */}
+            {isCollapsed && hasSubItems && (
+                <div 
+                    onClick={(e) => toggleCollapse(item.id, e)}
+                    className="pl-6 pt-1 flex items-center gap-1 text-xs text-slate-400 hover:text-indigo-500 cursor-pointer w-fit"
+                >
+                    <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                    <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                    <span className="ml-1">{item.subItems?.length} items hidden</span>
+                </div>
+            )}
           </div>
-        ))}
+        );
+        })}
       </div>
     </div>
   );
