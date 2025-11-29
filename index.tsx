@@ -13,3 +13,23 @@ root.render(
     <App />
   </React.StrictMode>
 );
+
+// Emergency Cleanup: Force unregister any service workers that might have been installed
+// during the PWA attempt. We wrap this in a load event listener and try/catch 
+// to prevent "The document is in an invalid state" errors.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => {
+        for (const registration of registrations) {
+          registration.unregister().catch(err => {
+            console.debug("SW Unregister failed (harmless):", err);
+          });
+        }
+      })
+      .catch((error) => {
+        // Silently catch errors like "document is in an invalid state"
+        console.debug("Service Worker cleanup skipped:", error);
+      });
+  });
+}
